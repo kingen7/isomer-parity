@@ -7,7 +7,8 @@ request becomes a recorded, reproducible piece of evidence that the legacy syste
 rewrite return the same answer — and leave the same state behind.
 
 > **Status: design stage.** This repository currently contains a specification and a JSON
-> Schema. The CLI is not implemented yet. See [Roadmap](#roadmap).
+> Schema. The CLI is not implemented yet, and no roadmap phase has been merged. See
+> [Roadmap](#roadmap) and [How this is built](#how-this-is-built).
 
 ## The problem
 
@@ -72,6 +73,31 @@ Two levels of assertion:
 | P3 | Golden corpus runner + CI gate |
 | P4 | HAR 1.2 importer |
 | P5 | Shadow traffic replayer + routed cutover and rollback |
+
+## How this is built
+
+This repository is built agent-first, and that constraint shaped the design rather than
+the other way round.
+
+Each phase above is scoped to a single pull request with a **machine-checkable acceptance
+gate written before the code** — fixture in, verdict out, exit code decides. No phase
+requires a running environment, a review comment or human judgement to be called done.
+
+Why the spec above looks like it does:
+
+- the observation contract exists so a grader can be built against fixtures alone, with no
+  live system in the loop;
+- detox rules are data so they can be iterated from a failing test, not from a hunch;
+- the grading taxonomy is fixed so "done" is a number (0 false alarms, >= 95% recall)
+  instead of an opinion.
+
+**Devin** is the intended executor for P0-P5. Every phase is specified as an isolated,
+deterministic task that an autonomous coding agent can implement, test against the golden
+corpus and hand back unaided; [`SPEC.md`](SPEC.md) is written to serve as that brief.
+
+The structure of the work is honest about its own state: **no phase has been merged yet.**
+The design and the schema are the current artifacts, and the first merged pull request will
+be P0.
 
 ## Documentation
 
