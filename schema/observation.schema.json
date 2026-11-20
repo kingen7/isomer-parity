@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kingen7/isomer-parity/schema/observation.schema.json",
+  "title": "Isomer Observation",
+  "description": "An immutable record of one request executed against both the legacy system and the shadow rewrite. This artifact is the only input the grader accepts.",
+  "$comment": "Numbers: 64-bit identifiers and money are carried as strings, never as JSON numbers. See SPEC.md 1.2.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["observationVersion", "id", "capturedAt", "meta", "request", "legacy", "shadow"],
+  "properties": {
+    "observationVersion": {
+      "const": "1.0"
+    },
+    "id": {
+      "$ref": "#/$defs/observationId"
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "meta": {
+      "$ref": "#/$defs/meta"
+    },
+    "request": {
+      "$ref": "#/$defs/request"
+    },
+    "legacy": {
+      "$ref": "#/$defs/side",
+      "description": "Response and write set produced by the legacy system."
+    },
+    "shadow": {
+      "$ref": "#/$defs/side",
+      "description": "Response and write set produced by the rewrite under test."
+    }
+  },
+  "$defs": {
+    "observationId": {
+      "type": "string",
+      "pattern": "^obs_[A-Za-z0-9_-]{8,64}$"
+    },
+    "bigId": {
+      "type": "string",
+      "pattern": "^-?[0-9]{1,20}$"
+    },
+    "money": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)\\.[0-9]{2}$",
+      "description": "Fixed-scale decimal in minor-unit-explicit form, e.g. \"-12.00\"."
+    },
+    "headers": {
+      "type": "object",
+      "description": "Header name (lowercased) to all values, preserving repetition and order.",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    },
+    "bodyEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mediaType", "encoding", "text"],
+      "description": "Original bytes of the body. Normalization must never rewrite this; the grader parses a copy.",
+      "properties": {
+        "mediaType": {
+          "type": "string",
+          "minLength": 1
+        },
+        "encoding": {
+          "enum": ["utf8", "base64"]
+        },
+        "text": {
+          "type": "string"
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when capture limits dropped the tail. A truncated body cannot yield a semantic verdict."
+        },
+        "originalSize": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "body": {
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/bodyEnvelope" }]
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["replayMode", "importer"],
+      "properties": {
+        "traceId": { "type": "string" },
+        "replayMode": {
+          "enum": ["fixture", "live"]
+        },
+        "importer": {
+          "type": "string",
+          "description": "Importer that produced this observation, e.g. \"har@1.2\", \"ndjson@1.0\"."
+        },
+        "source": {
+          "type": "string",
+          "description": "Free-form origin label, e.g. a service name or recording session."
+        },
+        "numericPolicy": {
+          "enum": ["strings-for-bigint-and-money", "all-strings"],
+          "description": "How the importer represented numbers outside the double range."
+        },
+        "capturedBy": { "type": "string" }
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "path"],
+      "properties": {
+        "method": {
+          "type": "string",
+          "pattern": "^[A-Z]+$"
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "query": {
+          "type": "object",
+          "description": "Query parameter to all values, preserving repetition. Repeats are semantically meaningful.",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "headers": {
+          "$ref": "#/$defs/headers"
+        },
+        "body": {
+          "$ref": "#/$defs/body"
+        },
+        "idempotencyKey": {
+          "type": ["string", "null"],
+          "description": "Carried separately because it differs per attempt by design and must never be graded as a semantic mismatch."
+        }
+      }
+    },
+    "writeSetEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["table", "pk", "op"],
+      "properties": {
+        "table": { "type": "string", "minLength": 1 },
+        "pk": {
+          "type": "object",
+          "description": "Primary key columns to stringified values.",
+          "additionalProperties": { "type": "string" },
+          "minProperties": 1
+        },
+        "op": {
+          "enum": ["insert", "update", "delete"]
+        },
+        "fullRow": {
+          "type": ["object", "null"],
+          "description": "Whole row, required for insert. For delete it may be null when the row was already absent."
+        },
+        "patch": {
+          "type": "object",
+          "description": "Changed fields only, required for update. Untouched-column drift therefore cannot affect the verdict.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["after"],
+            "properties": {
+              "before": {},
+              "after": {}
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "op": { "const": "insert" } } },
+          "then": { "required": ["fullRow"] }
+        },
+        {
+          "if": { "properties": { "op": { "const": "update" } } },
+          "then": { "required": ["patch"], "properties": { "patch": { "minProperties": 1 } } }
+        }
+      ]
+    },
+    "side": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        },
+        "headers": {
+          "$ref": "#/$defs/headers"
+        },
+        "body": {
+          "$ref": "#/$defs/body"
+        },
+        "error": {
+          "type": ["string", "null"],
+          "description": "Transport-level failure. Present only when no response was obtained; such an observation cannot be graded."
+        },
+        "writeSet": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/writeSetEntry" },
+          "description": "Optional. When present on both sides the observation yields state-parity in addition to response-parity."
+        }
+      }
+    }
+  }
+}
